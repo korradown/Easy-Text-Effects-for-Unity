@@ -247,7 +247,8 @@ namespace EasyTextEffects
             }
 
             // apply changes and update mesh
-            for (var i = 0; i < textInfo.meshInfo.Length; i++)
+            // (use textInfo.materialCount instead of textInfo.meshInfo.Length to avoid processing leftover meshes)
+            for (var i = 0; i < textInfo.materialCount; i++)
             {
                 TMP_MeshInfo meshInfo = textInfo.meshInfo[i];
 
@@ -308,27 +309,60 @@ namespace EasyTextEffects
 
         public void StartManualEffect(string _effectName)
         {
-            GlobalTextEffectEntry effectEntry = manualEffects_.Find(_entry => _entry.effect.effectTag == _effectName);
+            if (manualEffects_ == null) 
+            {
+                Debug.LogWarning($"Effect {_effectName} not found. No manual effects are loaded.");
+                return;
+            }
+
+            GlobalTextEffectEntry effectEntry = null;
+            for (int i = 0; i < manualEffects_.Count; i++)
+            {
+                if (manualEffects_[i].effect != null && manualEffects_[i].effect.effectTag == _effectName)
+                {
+                    effectEntry = manualEffects_[i];
+                    break;
+                }
+            }
+
             if (effectEntry != null)
             {
                 effectEntry.StartEffect();
             }
             else
             {
-                Debug.LogWarning($"Effect {_effectName} not found. Available effects: {string.Join(", ", manualEffects_.Select(_entry => _entry.effect.effectTag).ToList())}");
+                var available = manualEffects_.Where(e => e.effect != null).Select(e => e.effect.effectTag).ToList();
+                Debug.LogWarning($"Global Effect {_effectName} not found. Available global effects: {(available.Count > 0 ? string.Join(", ", available) : "None")}");
             }
         }
 
         public void StartManualTagEffect(string _effectName)
         {
-            TextEffectEntry effectEntry = manualTagEffects_.Find(_entry => _entry.effect.effectTag == _effectName);
+            if (manualTagEffects_ == null) 
+            {
+                Debug.LogWarning($"Tag Effect '{_effectName}' not found. No tag effects are loaded. Ensure your text contains <<link={_effectName}>text</link>> and Refresh() has been called.");
+                return;
+            }
+
+            TextEffectEntry effectEntry = null;
+            for (int i = 0; i < manualTagEffects_.Count; i++)
+            {
+                if (manualTagEffects_[i].effect != null && manualTagEffects_[i].effect.effectTag == _effectName)
+                {
+                    effectEntry = manualTagEffects_[i];
+                    break;
+                }
+            }
+
             if (effectEntry != null)
             {
                 effectEntry.StartEffect();
             }
             else
             {
-                Debug.LogWarning($"Effect {_effectName} not found. Available effects: {string.Join(", ", manualEffects_.Select(_entry => _entry.effect.effectTag).ToList())}");
+                var availableTags = manualTagEffects_.Where(e => e.effect != null).Select(e => e.effect.effectTag).ToList();
+                string availableStr = availableTags.Count > 0 ? string.Join(", ", availableTags) : "None";
+                Debug.LogWarning($"Tag Effect '{_effectName}' not found. Available tag effects: {availableStr}. Make sure the text contains <<link={_effectName}>text</link>> and Refresh() was called after setting the text.");
             }
         }
 
