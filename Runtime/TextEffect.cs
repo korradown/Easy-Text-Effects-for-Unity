@@ -39,7 +39,7 @@ namespace EasyTextEffects
         private List<GlobalTextEffectEntry> onStartEffects_;
         private List<GlobalTextEffectEntry> manualEffects_;
         private List<TextEffectInstance> entryEffectsCopied_;
-
+        private bool _wasActiveLastFrame = false; // Track if an effect just finished so we can do a final reset
         public void UpdateStyleInfos()
         {
             if (text == null || text.textInfo == null)
@@ -209,12 +209,46 @@ namespace EasyTextEffects
             StopListeningForEffectChanges();
         }
 
+        // Manual checks to prevent GC allocations from LINQ
+        private bool HasActiveEffects()
+        {
+            if (HasActiveEffectsInList(onStartEffects_)) return true;
+            if (HasActiveEffectsInList(manualEffects_)) return true;
+            if (HasActiveEffectsInList(onStartTagEffects_)) return true;
+            if (HasActiveEffectsInList(manualTagEffects_)) return true;
+            return false;
+        }
+        private bool HasActiveEffectsInList<T>(List<T> list) where T : TextEffectEntry
+        {
+            if (list == null) return false;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var effect = list[i].effect;
+                if (effect != null && effect.started && !effect.IsComplete)
+                    return true;
+            }
+            return false;
+        }
         private float nextUpdateTime_ = 0;
 
         public void Update()
         {
-            if (!text)
+            if (!text || !isActiveAndEnabled) return;
+
+            // Check if any effects are active. If not, we can skip the update and avoid unnecessary mesh updates
+            bool hasActiveEffects = HasActiveEffects();
+            if (!hasActiveEffects)
+            {
+                // If an effect just finished, do one final update to reset the text to its original state
+                if (_wasActiveLastFrame)
+                {
+                    text.ForceMeshUpdate();
+                    _wasActiveLastFrame = false;
+                }
                 return;
+            }
+
+            _wasActiveLastFrame = true;
 
             // updates should be independent of time scale
             var time = TimeUtil.GetTime(TimeUtil.TimeType.UnscaledTime); 
@@ -225,7 +259,10 @@ namespace EasyTextEffects
             text.ForceMeshUpdate();
             TMP_TextInfo textInfo = text.textInfo;
 
-            for (var i = 0; i < textInfo.characterCount; i++)
+            if (textInfo == null || textInfo.characterCount == 0) return;
+            int charCount = textInfo.characterCount;
+
+            for (var i = 0; i < charCount; i++)
             {
                 TMP_CharacterInfo charInfo = textInfo.characterInfo[i];
                 if (!charInfo.isVisible)
