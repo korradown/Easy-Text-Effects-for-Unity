@@ -148,15 +148,32 @@ namespace EasyTextEffects
 
         private void ListenForEffectChanges()
         {
-            var effects = (tagEffects ?? EmptyEffectEntryList)
-                          .Concat(globalEffects ?? EmptyGlobalEffectEntryList)
-                          .Where(entry => entry.effect)
-                          .Select(entry => entry.effect)
-                          .ToHashSet();
-
-            foreach (var effect in effects.Where(effect => monitoredEffects.Add(effect)))
-                effect.OnValueChanged += Refresh;
+            HashSet<TextEffectInstance> effects = new HashSet<TextEffectInstance>();
             
+            if (tagEffects != null)
+            {
+                foreach (var entry in tagEffects)
+                {
+                    if (entry.effect != null)
+                        effects.Add(entry.effect);
+                }
+            }
+            
+            if (globalEffects != null)
+            {
+                foreach (var entry in globalEffects)
+                {
+                    if (entry.effect != null)
+                        effects.Add(entry.effect);
+                }
+            }
+
+            foreach (var effect in effects)
+            {
+                if (monitoredEffects.Add(effect))
+                    effect.OnValueChanged += Refresh;
+            }
+
             monitoredEffects.RemoveWhere(effect =>
             {
                 if (effects.Contains(effect)) return false;
@@ -167,7 +184,8 @@ namespace EasyTextEffects
 
         private void StopListeningForEffectChanges()
         {
-            monitoredEffects.ForEach(x => x.OnValueChanged -= Refresh);
+            foreach (var effect in monitoredEffects)
+                effect.OnValueChanged -= Refresh;
             monitoredEffects.Clear();
         }
 
@@ -269,19 +287,50 @@ namespace EasyTextEffects
                     continue;
 
                 var capturedI = i;
-                onStartEffects_.Where(_entry => !_entry.overrideTagEffects)
-                    .ForEach(_entry => _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
-                manualEffects_.Where(_entry => !_entry.overrideTagEffects).ForEach(_entry =>
-                    _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
+                // Replace LINQ with for loops to prevent garbage collection every frame
+                for (int e = 0; e < onStartEffects_.Count; e++)
+                {
+                    var entry = onStartEffects_[e];
+                    if (!entry.overrideTagEffects && entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
 
-                onStartTagEffects_.ForEach(_entry => _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
-                manualTagEffects_.ForEach(_entry => _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
+                for (int e = 0; e < manualEffects_.Count; e++)
+                {
+                    var entry = manualEffects_[e];
+                    if (!entry.overrideTagEffects && entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
 
-                onStartEffects_.Where(_entry => _entry.overrideTagEffects).ForEach(_entry =>
-                    _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
-                manualEffects_.Where(_entry => _entry.overrideTagEffects).ForEach(_entry =>
-                    _entry.effect.ApplyEffect(textInfo, capturedI, 0, 3));
+                for (int e = 0; e < onStartTagEffects_.Count; e++)
+                {
+                    var entry = onStartTagEffects_[e];
+                    if (entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
+
+                for (int e = 0; e < manualTagEffects_.Count; e++)
+                {
+                    var entry = manualTagEffects_[e];
+                    if (entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
+
+                for (int e = 0; e < onStartEffects_.Count; e++)
+                {
+                    var entry = onStartEffects_[e];
+                    if (entry.overrideTagEffects && entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
+
+                for (int e = 0; e < manualEffects_.Count; e++)
+                {
+                    var entry = manualEffects_[e];
+                    if (entry.overrideTagEffects && entry.effect != null)
+                        entry.effect.ApplyEffect(textInfo, capturedI, 0, 3);
+                }
             }
+
 
             // apply changes and update mesh
             // (use textInfo.materialCount instead of textInfo.meshInfo.Length to avoid processing leftover meshes)
@@ -300,43 +349,43 @@ namespace EasyTextEffects
 
         public void StopAllEffects()
         {
-            onStartEffects_.ForEach(_entry => _entry.effect.StopEffect());
-            manualEffects_.ForEach(_entry => _entry.effect.StopEffect());
-            onStartTagEffects_.ForEach(_entry => _entry.effect.StopEffect());
-            manualTagEffects_.ForEach(_entry => _entry.effect.StopEffect());
+            for (int i = 0; i < onStartEffects_.Count; i++) onStartEffects_[i].effect.StopEffect();
+            for (int i = 0; i < manualEffects_.Count; i++) manualEffects_[i].effect.StopEffect();
+            for (int i = 0; i < onStartTagEffects_.Count; i++) onStartTagEffects_[i].effect.StopEffect();
+            for (int i = 0; i < manualTagEffects_.Count; i++) manualTagEffects_[i].effect.StopEffect();
         }
 
         public void StartOnStartEffects()
         {
-            onStartEffects_.ForEach(_entry => _entry.StartEffect());
-            onStartTagEffects_.ForEach(_entry => _entry.StartEffect());
+            for (int i = 0; i < onStartEffects_.Count; i++) onStartEffects_[i].StartEffect();
+            for (int i = 0; i < onStartTagEffects_.Count; i++) onStartTagEffects_[i].StartEffect();
             nextUpdateTime_ = 0; // immediately update
         }
 
         public void StopOnStartEffects()
         {
-            onStartEffects_.ForEach(_entry => _entry.effect.StopEffect());
-            onStartTagEffects_.ForEach(_entry => _entry.effect.StopEffect());
+            for (int i = 0; i < onStartEffects_.Count; i++) onStartEffects_[i].effect.StopEffect();
+            for (int i = 0; i < onStartTagEffects_.Count; i++) onStartTagEffects_[i].effect.StopEffect();
         }
 
         public void StartManualEffects()
         {
-            manualEffects_.ForEach(_entry => _entry.StartEffect());
+            for (int i = 0; i < manualEffects_.Count; i++) manualEffects_[i].StartEffect();
         }
 
         public void StopManualEffects()
         {
-            manualEffects_.ForEach(_entry => _entry.effect.StopEffect());
+            for (int i = 0; i < manualEffects_.Count; i++) manualEffects_[i].effect.StopEffect();
         }
 
         public void StartManualTagEffects()
         {
-            manualTagEffects_.ForEach(_entry => _entry.StartEffect());
+            for (int i = 0; i < manualTagEffects_.Count; i++) manualTagEffects_[i].StartEffect();
         }
 
         public void StopManualTagEffects()
         {
-            manualTagEffects_.ForEach(_entry => _entry.effect.StopEffect());
+            for (int i = 0; i < manualTagEffects_.Count; i++) manualTagEffects_[i].effect.StopEffect();
         }
 
         public GlobalTextEffectEntry FindManualEffect(string _effectName)
