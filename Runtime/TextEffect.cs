@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using EasyTextEffects.Editor.MyBoxCopy.Attributes;
@@ -40,19 +41,25 @@ namespace EasyTextEffects
         private List<GlobalTextEffectEntry> manualEffects_;
         private List<TextEffectInstance> entryEffectsCopied_;
         private bool _wasActiveLastFrame = false; // Track if an effect just finished so we can do a final reset
+
+        // Vertex caching to eliminate the need for ForceMeshUpdate() every frame
+        private Vector3[][] _baseVertices;
+        private Color32[][] _baseColors;
+        private bool _isMeshDirty = true;
         public void UpdateStyleInfos()
         {
             if (text == null || text.textInfo == null)
                 return;
+            
             TMP_TextInfo textInfo = text.textInfo;
-
             var styles = textInfo.linkInfo;
             var linkCount = textInfo.linkCount;
-
             CopyGlobalEffects(textInfo);
             AddTagEffects(styles, linkCount);
-
             StartOnStartEffects();
+            
+            // Flag that base vertices need to be recached
+            _isMeshDirty = true;
         }
 
         private void CopyGlobalEffects(TMP_TextInfo textInfo)
@@ -213,20 +220,54 @@ namespace EasyTextEffects
 
         private void OnEnable()
         {
-#if UNITY_EDITOR
+        #if UNITY_EDITOR
             EditorApplication.update += Update;
-#endif
+        #endif
+            // Listen to TMP's global text changed event to know when the mesh is rebuilt
+            TMPro_EventManager.TEXT_CHANGED_EVENT.Add(OnTextChanged);
             Refresh();
         }
 
         private void OnDisable()
         {
-#if UNITY_EDITOR
+        #if UNITY_EDITOR
             EditorApplication.update -= Update;
-#endif
+        #endif
+            TMPro_EventManager.TEXT_CHANGED_EVENT.Remove(OnTextChanged);
             StopListeningForEffectChanges();
         }
+        // Called by TMP whenever mesh is regenerated
+        private void OnTextChanged(UnityEngine.Object obj)
+        {
+            if (obj == text)
+            {
+                if (text != null && text.textInfo != null)
+                {
+                    // cache the new mesh
+                    CacheBaseMesh(text.textInfo);
+                    _isMeshDirty = false;
+                    
+                    // Update the charCount of global effects
+                    // but keep manual effects playing
+                    int charCount = text.textInfo.characterCount;
+                    UpdateGlobalEffectLengths(onStartEffects_, charCount);
+                    UpdateGlobalEffectLengths(manualEffects_, charCount);
+                }
+            }
+        }
 
+        // Helper to update the length of existing global effects without destroying them
+        private void UpdateGlobalEffectLengths(List<GlobalTextEffectEntry> list, int charCount)
+        {
+            if (list == null) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] != null && list[i].effect != null)
+                {
+                    list[i].effect.charLength = charCount;
+                }
+            }
+        }
         // Manual checks to prevent GC allocations from LINQ
         private bool HasActiveEffects()
         {
@@ -246,6 +287,31 @@ namespace EasyTextEffects
                     return true;
             }
             return false;
+        }
+        private void CacheBaseMesh(TMP_TextInfo textInfo)
+        {
+            int materialCount = textInfo.materialCount;
+            _baseVertices = new Vector3[materialCount][];
+            _baseColors = new Color32[materialCount][];
+
+            for (int i = 0; i < materialCount; i++)
+            {
+                TMP_MeshInfo meshInfo = textInfo.meshInfo[i];
+                _baseVertices[i] = (Vector3[])meshInfo.vertices.Clone();
+                _baseColors[i] = (Color32[])meshInfo.colors32.Clone();
+            }
+        }
+
+        private void RestoreBaseMesh(TMP_TextInfo textInfo)
+        {
+            for (int i = 0; i < textInfo.materialCount; i++)
+            {
+                if (i < _baseVertices.Length && _baseVertices[i] != null && _baseVertices[i].Length == textInfo.meshInfo[i].vertices.Length)
+                {
+                    Array.Copy(_baseVertices[i], textInfo.meshInfo[i].vertices, _baseVertices[i].Length);
+                    Array.Copy(_baseColors[i], textInfo.meshInfo[i].colors32, _baseColors[i].Length);
+                }
+            }
         }
         private float nextUpdateTime_ = 0;
 
@@ -274,8 +340,38 @@ namespace EasyTextEffects
                 return;
             nextUpdateTime_ = time + 1f / updatesPerSecond;
 
-            text.ForceMeshUpdate();
             TMP_TextInfo textInfo = text.textInfo;
+            if (textInfo == null) return;
+
+            // Check if we need a mesh update (text changed, or TMP resized arrays)
+            bool mustForceUpdate = false;
+            if (_isMeshDirty || _baseVertices == null || _baseVertices.Length != textInfo.materialCount)
+            {
+                mustForceUpdate = true;
+            }
+            else
+            {
+                for (int i = 0; i < textInfo.materialCount; i++)
+                {
+                    if (_baseVertices[i] == null || _baseVertices[i].Length != textInfo.meshInfo[i].vertices.Length)
+                    {
+                        mustForceUpdate = true;
+                        break;
+                    }
+                }
+            }
+
+            if (mustForceUpdate)
+            {
+                text.ForceMeshUpdate();
+                textInfo = text.textInfo; // Update textInfo
+                CacheBaseMesh(textInfo);
+                _isMeshDirty = false;
+            }
+            else
+            {
+                RestoreBaseMesh(textInfo);
+            }
 
             if (textInfo == null || textInfo.characterCount == 0) return;
             int charCount = textInfo.characterCount;
